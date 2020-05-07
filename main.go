@@ -9,7 +9,6 @@ func main() {
 	bottoken := flag.String("token", "", "telegram bot token")
 	flag.Parse()
 
-	bot := newTeleBot(*bottoken)
-	hub2 := NewHub2(bot, *hubAPI)
+	hub2 := NewHub2(*bottoken, *hubAPI)
 	hub2.Block()
 }
