@@ -83,7 +83,7 @@ func onTgCommand(update *tgbotapi.Update, hub2 *Hub2) {
 
 	if cmd != "" {
 		chatid := str(msg.Chat.ID)
-		userid := str(msg.From.ID)
+		userid := msg.From.UserName
 		switch cmd {
 		case "sub":
 			hub2.registerTopics(chatid, userid, topics2)

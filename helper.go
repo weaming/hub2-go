@@ -1,9 +1,14 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"log"
+	"os"
+	"path"
 	"reflect"
+	"strings"
 )
 
 func fatalErr(err error, prefix string) {
@@ -64,4 +69,34 @@ func (s Set) Arr() (rv []string) {
 		rv = append(rv, k)
 	}
 	return
+}
+
+func PrepareDir(filePath string, forceDir bool) {
+	if !strings.HasSuffix(filePath, "/") || forceDir {
+		filePath = path.Dir(filePath)
+	}
+	if err := os.MkdirAll(filePath, os.FileMode(0755)); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func writeJson(filePath string, v interface{}) {
+	bytes, err := json.Marshal(v)
+	fatalErr(err, "marshal")
+
+	err = ioutil.WriteFile(filePath, bytes, 0644)
+	fatalErr(err, "write")
+}
+
+func readJson(filePath string, v interface{}) {
+	log.Printf("reading json %s\n", filePath)
+	jsonFile, err := os.Open(filePath)
+	fatalErr(err, "open")
+	defer jsonFile.Close()
+
+	bytes, err := ioutil.ReadAll(jsonFile)
+	fatalErr(err, "read")
+
+	err = json.Unmarshal(bytes, v)
+	fatalErr(err, "unmarshal")
 }
