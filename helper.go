@@ -7,7 +7,6 @@ import (
 	"log"
 	"os"
 	"path"
-	"reflect"
 	"strings"
 )
 
@@ -19,22 +18,6 @@ func fatalErr(err error, prefix string) {
 
 func str(v interface{}) string {
 	return fmt.Sprintf("%v", v)
-}
-
-func sliceDel(xs []interface{}, i int) []interface{} {
-	if i > len(xs)-1 {
-		return xs
-	}
-	if i == len(xs)-1 {
-		goto tripTail
-	}
-
-	xs[i] = xs[len(xs)-1] // Copy last element to index i
-
-tripTail:
-	xs[len(xs)-1] = reflect.Zero(reflect.TypeOf(xs[len(xs)-1])) // Erase last element (write zero value).
-	xs = xs[:len(xs)-1]
-	return xs
 }
 
 type Set map[string]uint8
@@ -71,7 +54,7 @@ func (s Set) Arr() (rv []string) {
 	return
 }
 
-func PrepareDir(filePath string, forceDir bool) {
+func prepareDir(filePath string, forceDir bool) {
 	if !strings.HasSuffix(filePath, "/") || forceDir {
 		filePath = path.Dir(filePath)
 	}

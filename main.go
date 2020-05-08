@@ -8,7 +8,7 @@ import (
 func main() {
 	hubAPI := flag.String("ws", "wss://hub.drink.cafe/ws", "websocket server api")
 	bottoken := flag.String("token", "", "telegram bot token")
-	cfgPath := flag.String("config", os.ExpandEnv("$HOME/data/hub2-go/config.json"), "telegram bot token")
+	cfgPath := flag.String("config", os.ExpandEnv("$HOME/data/hub2-go/config.json"), "json config path to store tocic/group/user mapping")
 	flag.Parse()
 
 	hub2 := NewHub2(*bottoken, *hubAPI, *cfgPath)

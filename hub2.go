@@ -16,24 +16,27 @@ import (
 )
 
 type Hub2 struct {
-	sync.RWMutex
-	hubAPI     string
-	configPath string
-	ws         *websocket.Conn
-	bot        *tgbotapi.BotAPI
-	mapping    map[string]map[string]Set // topic -> chatid -> username
+	sync.RWMutex            // rw lock for .mapping, .ws and .bot
+	wsRLock      sync.Mutex // read lock for websocket connection
+	wsWLock      sync.Mutex // write lock for websocket connection
+	botLock      sync.Mutex
+	HubAPI       string
+	ConfigPath   string
+	ws           *websocket.Conn
+	bot          *tgbotapi.BotAPI
+	mapping      map[string]map[string]Set // topic -> chatid -> username
 }
 
 func NewHub2(bottoken, hubAPI, configPath string) *Hub2 {
 	h := Hub2{
-		hubAPI:     hubAPI,
-		configPath: configPath,
+		HubAPI:     hubAPI,
+		ConfigPath: configPath,
 		ws:         nil,
 		bot:        nil,
 		mapping:    map[string]map[string]Set{},
 	}
 
-	PrepareDir(configPath, true)
+	prepareDir(configPath, true)
 
 	if _, err := os.Stat(configPath); !os.IsNotExist(err) {
 		readJson(configPath, &h.mapping)
@@ -50,10 +53,11 @@ func NewHub2(bottoken, hubAPI, configPath string) *Hub2 {
 	return &h
 }
 
+// try connecting to Hub websocket, panic after use out of retry limit
 func (h *Hub2) newHubWSConn(retry int) *websocket.Conn {
 retry:
-	log.Printf("connecting to %s", h.hubAPI)
-	ws, _, err := websocket.DefaultDialer.Dial(h.hubAPI, nil)
+	log.Printf("connecting to %s", h.HubAPI)
+	ws, _, err := websocket.DefaultDialer.Dial(h.HubAPI, nil)
 	if err != nil {
 		log.Println("dial:", err)
 		if retry > 0 {
@@ -62,7 +66,7 @@ retry:
 		}
 		panic(err)
 	}
-	log.Printf("connectted to %s", h.hubAPI)
+	log.Printf("connectted to %s", h.HubAPI)
 	return ws
 }
 
@@ -71,12 +75,20 @@ func (h *Hub2) newBot(token string) *tgbotapi.BotAPI {
 }
 
 func (h *Hub2) LoopOnWsResponse() {
+	defer func() { log.Println("read loop exited") }()
+
 start:
 	err := h.subTopics(h.Topics().Arr())
 	fatalErr(err, "sub")
 
 	for {
-		msgType, message, err := h.ws.ReadMessage()
+		msgType, message, err := func() (int, []byte, error) {
+			h.wsRLock.Lock()
+			defer h.wsRLock.Unlock()
+
+			return h.ws.ReadMessage()
+		}()
+
 		if err != nil || msgType == websocket.CloseMessage {
 			log.Println("ws read err:", err)
 			h.ws.Close()
@@ -97,86 +109,130 @@ start:
 			continue
 		}
 
-		switch push.Type {
-		case core.MTResponse, core.MTFeedback:
-			// pass
-		case core.MTMessage:
-			push := &core.PushMessage{}
+		// go h.handlerWSPush(*push, message) // as write-lock botLock in handlerWSPush, new goroutine is useless
+		h.handlerWSPush(*push, message)
+	}
+}
 
-			err = json.Unmarshal(message, push)
-			if err != nil {
-				log.Println("unmarshal err:", err)
-				continue
-			}
-			msg := push.Message
+func (h *Hub2) handlerWSPush(push core.PushMessageResponse, message []byte) {
+	// add read lock for h.mapping
+	h.RLock()
+	defer h.RUnlock()
 
-			body := ""
-			bodyArr := []core.RawItem{}
-			preview := false
-			mode := ""
+	// add write lock for h.bot.Send
+	// Note: comment it will not work properly
+	h.botLock.Lock()
+	defer h.botLock.Unlock()
 
-			switch msg.Type {
-			case core.MTPlain:
-				body = msg.Data
-			case core.MTJSON:
-				body = msg.Data
-			case core.MTMarkdown:
-				body = msg.Data
-				mode = "Markdown"
-			case core.MTMarkdownV2:
-				body = msg.Data
-				mode = "MarkdownV2"
-			case core.MTHTML:
-				body = msg.Data
-				mode = "HTML"
-			case core.MTPhoto, core.MTVideo:
-				bodyArr := msg.ExtendedData
-				bodyArr = append(bodyArr, core.RawItem{msg.Type, msg.Data, msg.Caption, msg.Preview})
-			default:
-				log.Printf("unknown type %v\n", msg.Type)
-				continue
-			}
+	switch push.Type {
+	case core.MTResponse, core.MTFeedback:
+		// pass
+	case core.MTMessage:
+		push := &core.PushMessage{}
 
-			if xxs, ok := h.mapping[push.Topic]; ok {
-				// log.Println(xxs)
+		err := json.Unmarshal(message, push)
+		if err != nil {
+			log.Println("unmarshal err:", err)
+			return
+		}
 
-				for chatid, useridSet := range xxs {
-					chatidInt64, err := strconv.ParseInt(chatid, 10, 64)
-					fatalErr(err, "strconv")
-					isGroup := chatidInt64 < 0
+		msg := push.Message
 
-					if len(bodyArr) == 0 {
-						// send one msg
-						text := fmt.Sprintf("%s\n\n# %s", body, push.Topic)
-						if isGroup {
-							text += fmt.Sprintf(" by %s", strings.Join(useridSet.Arr(), ", "))
+		body := ""
+		bodyArr := []core.RawItem{}
+		preview := false
+		mode := ""
+
+		switch msg.Type {
+		case core.MTPlain:
+			body = msg.Data
+		case core.MTJSON:
+			body = msg.Data
+		case core.MTMarkdown:
+			body = msg.Data
+			mode = "Markdown"
+		case core.MTMarkdownV2:
+			body = msg.Data
+			mode = "MarkdownV2"
+		case core.MTHTML:
+			body = msg.Data
+			mode = "HTML"
+		case core.MTPhoto, core.MTVideo:
+			bodyArr = msg.ExtendedData
+			bodyArr = append(bodyArr, core.RawItem{
+				Type:    msg.Type,
+				Data:    msg.Data,
+				Caption: msg.Caption,
+				Preview: msg.Preview,
+			})
+		default:
+			log.Printf("unknown type %v\n", msg.Type)
+			return
+		}
+
+		if xxs, ok := h.mapping[push.Topic]; ok {
+			// log.Println(xxs)
+
+			for chatid, useridSet := range xxs {
+				chatidInt64, err := strconv.ParseInt(chatid, 10, 64)
+				fatalErr(err, "strconv")
+
+				isGroup := chatidInt64 < 0
+
+				if len(bodyArr) == 0 {
+					// send one msg
+					text := fmt.Sprintf("%s\n\n# %s", body, push.Topic)
+					if isGroup {
+						text += fmt.Sprintf(" by %s", strings.Join(useridSet.Arr(), ", "))
+					}
+
+					tgmsg := tgbotapi.NewMessage(chatidInt64, text)
+					tgmsg.DisableWebPagePreview = !preview
+					tgmsg.ParseMode = mode
+
+					// log.Println("sending...")
+					_, err = h.bot.Send(tgmsg)
+					if err != nil {
+						// TODO
+						log.Println("botsend:", err)
+					}
+				} else {
+					// send collection of photo, video
+					files := []interface{}{}
+					for _, x := range bodyArr {
+						switch x.Type {
+						case core.MTPhoto:
+							media := tgbotapi.NewInputMediaPhoto(x.Data)
+							media.Caption = x.Caption
+							media.ParseMode = ""
+							files = append(files, media)
+						case core.MTVideo:
+							media := tgbotapi.NewInputMediaVideo(x.Data)
+							media.Caption = x.Caption
+							media.ParseMode = ""
+							files = append(files, media)
+						default:
+							log.Printf("unknown message type %s\n", x.Type)
 						}
+					}
 
-						tgmsg := tgbotapi.NewMessage(chatidInt64, text)
-						tgmsg.DisableWebPagePreview = !preview
-						tgmsg.ParseMode = mode
+					tgmsg := tgbotapi.NewMediaGroup(chatidInt64, files)
 
-						_, err = h.bot.Send(tgmsg)
-						if err != nil {
-							log.Println("botsend:", err)
-							// TODO
-						}
-					} else {
-						// send collection of photo, video
-						// tgmsg := tgbotapi.NewMediaGroup(chatidInt64, files)
+					// log.Println("sending...")
+					res, err := h.bot.Send(tgmsg)
+					if err != nil {
+						// TODO
+						log.Println("botsend:", err, res)
 					}
 				}
 			}
-		default:
-			log.Printf("unknown push type %s\n", push.Type)
 		}
-
+	default:
+		log.Printf("unknown push type %s\n", push.Type)
 	}
 }
 
 func (h *Hub2) addMapping(topic, chatid, userid string) {
-	h.Lock()
-	defer h.Unlock()
 	if xxs, ok := h.mapping[topic]; ok {
 		if xs, ok2 := xxs[chatid]; ok2 {
 			xs.Add(userid)
@@ -186,20 +242,26 @@ func (h *Hub2) addMapping(topic, chatid, userid string) {
 	} else {
 		h.mapping[topic] = map[string]Set{chatid: NewSet(userid)}
 	}
-
-	// log.Println(h.mapping)
-	writeJson(h.configPath, h.mapping)
 }
 
 func (h *Hub2) registerTopics(chatid, userid string, topics []string) {
+	// add write lock for update h.mapping
+	h.Lock()
+	defer h.Unlock()
+
 	for _, t := range topics {
 		h.addMapping(t, chatid, userid)
 	}
+
+	// write updated mapping to disk
+	writeJson(h.ConfigPath, h.mapping)
 }
 
 func (h *Hub2) subTopics(topics []string) error {
-	h.Lock()
-	defer h.Unlock()
+	// ensure only one write to websocket
+	h.wsWLock.Lock()
+	defer h.wsWLock.Unlock()
+
 	log.Println("sub:", topics)
 	return h.ws.WriteJSON(NewSubMessage(topics))
 }
