@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api"
 	"github.com/gorilla/websocket"
@@ -44,17 +45,18 @@ func NewHub2(bottoken, hubAPI, configPath string) *Hub2 {
 
 	log.Println(h.mapping)
 
-	h.Lock()
-	h.ws = h.newHubWSConn(3)
-	h.bot = h.newBot(bottoken)
-	h.Unlock()
+	h.newHubWSConn(3)
+	h.newBot(bottoken)
 
 	go h.LoopOnWsResponse()
 	return &h
 }
 
 // try connecting to Hub websocket, panic after use out of retry limit
-func (h *Hub2) newHubWSConn(retry int) *websocket.Conn {
+func (h *Hub2) newHubWSConn(retry int) {
+	h.Lock()
+	defer h.Unlock()
+
 retry:
 	log.Printf("connecting to %s", h.HubAPI)
 	ws, _, err := websocket.DefaultDialer.Dial(h.HubAPI, nil)
@@ -67,11 +69,29 @@ retry:
 		panic(err)
 	}
 	log.Printf("connectted to %s", h.HubAPI)
-	return ws
+	h.ws = ws
 }
 
-func (h *Hub2) newBot(token string) *tgbotapi.BotAPI {
-	return newTeleBot(token, h)
+func (h *Hub2) newBot(token string) {
+	h.Lock()
+	defer h.Unlock()
+	h.bot = newTeleBot(h, token)
+}
+
+func (h *Hub2) subTopics(topics []string) error {
+	// ensure only one write to websocket
+	h.wsWLock.Lock()
+	defer h.wsWLock.Unlock()
+
+	log.Println("sub:", topics)
+	return h.ws.WriteJSON(NewSubMessage(topics))
+}
+
+func (h *Hub2) wsReadMsg() (int, []byte, error) {
+	h.wsRLock.Lock()
+	defer h.wsRLock.Unlock()
+
+	return h.ws.ReadMessage()
 }
 
 func (h *Hub2) LoopOnWsResponse() {
@@ -82,20 +102,13 @@ start:
 	fatalErr(err, "sub")
 
 	for {
-		msgType, message, err := func() (int, []byte, error) {
-			h.wsRLock.Lock()
-			defer h.wsRLock.Unlock()
-
-			return h.ws.ReadMessage()
-		}()
+		msgType, message, err := h.wsReadMsg()
 
 		if err != nil || msgType == websocket.CloseMessage {
 			log.Println("ws read err:", err)
 			h.ws.Close()
 
-			h.Lock()
-			h.ws = h.newHubWSConn(100)
-			h.Unlock()
+			h.newHubWSConn(100)
 			goto start
 		}
 		if msgType == websocket.TextMessage {
@@ -257,15 +270,6 @@ func (h *Hub2) registerTopics(chatid, userid string, topics []string) {
 	writeJson(h.ConfigPath, h.mapping)
 }
 
-func (h *Hub2) subTopics(topics []string) error {
-	// ensure only one write to websocket
-	h.wsWLock.Lock()
-	defer h.wsWLock.Unlock()
-
-	log.Println("sub:", topics)
-	return h.ws.WriteJSON(NewSubMessage(topics))
-}
-
 func (h *Hub2) Topics() Set {
 	h.RLock()
 	defer h.RUnlock()
@@ -295,6 +299,7 @@ func (h *Hub2) TopicsOfUser(chatid, userid string) Set {
 
 func (h *Hub2) Block() {
 	for {
+		time.Sleep(10 * time.Second)
 	}
 }
 

@@ -8,7 +8,7 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api"
 )
 
-func newTeleBot(token string, hub2 *Hub2) *tgbotapi.BotAPI {
+func newTeleBot(hub2 *Hub2, token string) *tgbotapi.BotAPI {
 	bot, err := tgbotapi.NewBotAPI(token)
 	fatalErr(err, "tgbotapi")
 	// bot.Debug = true
@@ -21,6 +21,7 @@ func newTeleBot(token string, hub2 *Hub2) *tgbotapi.BotAPI {
 	fatalErr(err, "tgbotapi")
 
 	go func() {
+		log.Println("wait for bot updates")
 		for update := range updates {
 			if update.Message == nil {
 				continue
