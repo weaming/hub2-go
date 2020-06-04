@@ -16,7 +16,8 @@ import (
 	"github.com/weaming/hub/core"
 )
 
-var charsMustBeEscape = []string{"_", "*", "[", "]", "(", ")", "~", "`", ">", "#", "+", "-", "=", "|", "{", "}", ".", "!"}
+// var charsMustBeEscape = []string{"_", "*", "[", "]", "(", ")", "~", "`", ">", "#", "+", "-", "=", "|", "{", "}", ".", "!"}
+var charsMustBeEscape = []string{"#"}
 
 type Hub2 struct {
 	sync.RWMutex            // rw lock for .mapping, .ws and .bot
