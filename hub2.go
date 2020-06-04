@@ -16,6 +16,8 @@ import (
 	"github.com/weaming/hub/core"
 )
 
+var charsMustBeEscape = []string{"_", "*", "[", "]", "(", ")", "~", "`", ">", "#", "+", "-", "=", "|", "{", "}", ".", "!"}
+
 type Hub2 struct {
 	sync.RWMutex            // rw lock for .mapping, .ws and .bot
 	wsRLock      sync.Mutex // read lock for websocket connection
@@ -195,6 +197,12 @@ func (h *Hub2) handlerWSPush(push core.PushMessageResponse, message []byte) {
 				if len(bodyArr) == 0 {
 					// send one msg
 					text := fmt.Sprintf("%s\n\n# %s", body, push.Topic)
+					// https://core.telegram.org/bots/api#markdownv2-style
+					if msg.Type == core.MTMarkdownV2 {
+						for _, c := range charsMustBeEscape {
+							text = strings.ReplaceAll(text, c, fmt.Sprintf("\\%s", c))
+						}
+					}
 					if isGroup {
 						text += fmt.Sprintf(" by %s", strings.Join(useridSet.Arr(), ", "))
 					}
@@ -207,8 +215,9 @@ func (h *Hub2) handlerWSPush(push core.PushMessageResponse, message []byte) {
 					_, err = h.bot.Send(tgmsg)
 					if err != nil {
 						// TODO
-						log.Println("botsend:", err)
+						log.Println("botsend error:", err)
 					}
+					log.Println("botsent success!")
 				} else {
 					// send collection of photo, video
 					files := []interface{}{}
