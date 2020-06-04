@@ -239,6 +239,17 @@ func (h *Hub2) handlerWSPush(push core.PushMessageResponse, message []byte) {
 						}
 					}
 
+					// add topic
+					file0 := files[0]
+					switch v := file0.(type) {
+					case tgbotapi.InputMediaPhoto:
+						v.Caption = fmt.Sprintf("%s\n\n# %s", strings.TrimSpace(v.Caption), push.Topic)
+					case tgbotapi.InputMediaVideo:
+						v.Caption = fmt.Sprintf("%s\n\n# %s", strings.TrimSpace(v.Caption), push.Topic)
+					default:
+						log.Fatal("bug")
+					}
+
 					tgmsg := tgbotapi.NewMediaGroup(chatidInt64, files)
 
 					// log.Println("sending...")
