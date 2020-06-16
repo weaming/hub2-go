@@ -222,32 +222,39 @@ func (h *Hub2) handlerWSPush(push core.PushMessageResponse, message []byte) {
 				} else {
 					// send collection of photo, video
 					files := []interface{}{}
-					for _, x := range bodyArr {
+					for i, x := range bodyArr {
 						switch x.Type {
 						case core.MTPhoto:
 							media := tgbotapi.NewInputMediaPhoto(x.Data)
-							media.Caption = x.Caption
+							if i == 0 {
+								text := strings.TrimSpace(x.Caption)
+								text = fmt.Sprintf("%s\n\n# %s", text, push.Topic)
+								if isGroup {
+									text += fmt.Sprintf(" by %s", strings.Join(useridSet.Arr(), ", "))
+								}
+								media.Caption = text
+							} else {
+								media.Caption = x.Caption
+							}
 							media.ParseMode = ""
 							files = append(files, media)
 						case core.MTVideo:
 							media := tgbotapi.NewInputMediaVideo(x.Data)
-							media.Caption = x.Caption
+							if i == 0 {
+								text := strings.TrimSpace(x.Caption)
+								text = fmt.Sprintf("%s\n\n# %s", text, push.Topic)
+								if isGroup {
+									text += fmt.Sprintf(" by %s", strings.Join(useridSet.Arr(), ", "))
+								}
+								media.Caption = text
+							} else {
+								media.Caption = x.Caption
+							}
 							media.ParseMode = ""
 							files = append(files, media)
 						default:
 							log.Printf("unknown message type %s\n", x.Type)
 						}
-					}
-
-					// add topic
-					file0 := files[0]
-					switch v := file0.(type) {
-					case tgbotapi.InputMediaPhoto:
-						v.Caption = fmt.Sprintf("%s\n\n# %s", strings.TrimSpace(v.Caption), push.Topic)
-					case tgbotapi.InputMediaVideo:
-						v.Caption = fmt.Sprintf("%s\n\n# %s", strings.TrimSpace(v.Caption), push.Topic)
-					default:
-						log.Fatal("bug")
 					}
 
 					tgmsg := tgbotapi.NewMediaGroup(chatidInt64, files)
