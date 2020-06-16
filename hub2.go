@@ -175,12 +175,19 @@ func (h *Hub2) handlerWSPush(push core.PushMessageResponse, message []byte) {
 			mode = "HTML"
 		case core.MTPhoto, core.MTVideo:
 			bodyArr = msg.ExtendedData
-			bodyArr = append(bodyArr, core.RawItem{
+			head := core.RawItem{
 				Type:    msg.Type,
 				Data:    msg.Data,
 				Caption: msg.Caption,
 				Preview: msg.Preview,
-			})
+			}
+
+			if len(bodyArr) == 0 {
+				bodyArr = append(bodyArr, head)
+			} else {
+				bodyArr = append(bodyArr[1:], bodyArr[0:]...)
+				bodyArr[0] = head
+			}
 		default:
 			log.Printf("unknown type %v\n", msg.Type)
 			return
