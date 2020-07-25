@@ -92,6 +92,8 @@ func onTgCommand(update *tgbotapi.Update, hub2 *Hub2) {
 			text := fmt.Sprintf("topics you subscribed now: %v", strings.Join(hub2.TopicsOfUser(chatid, userid).Arr(), ", "))
 			hub2.bot.Send(newReplyTo(msg, text))
 		case "unsub":
+			hub2.unregisterTopics(chatid, userid, topics2)
+			// ignore unsub topics from hub
 			text := fmt.Sprintf("topics you subscribed now: %v", strings.Join(hub2.TopicsOfUser(chatid, userid).Arr(), ", "))
 			hub2.bot.Send(newReplyTo(msg, text))
 		default:

@@ -291,6 +291,13 @@ func (h *Hub2) addMapping(topic, chatid, userid string) {
 		h.mapping[topic] = map[string]Set{chatid: NewSet(userid)}
 	}
 }
+func (h *Hub2) removeMapping(topic, chatid, userid string) {
+	if xxs, ok := h.mapping[topic]; ok {
+		if xs, ok2 := xxs[chatid]; ok2 {
+			xs.Del(userid)
+		}
+	}
+}
 
 func (h *Hub2) registerTopics(chatid, userid string, topics []string) {
 	// add write lock for update h.mapping
@@ -302,6 +309,14 @@ func (h *Hub2) registerTopics(chatid, userid string, topics []string) {
 	}
 
 	// write updated mapping to disk
+	writeJson(h.ConfigPath, h.mapping)
+}
+func (h *Hub2) unregisterTopics(chatid, userid string, topics []string) {
+	h.Lock()
+	defer h.Unlock()
+	for _, t := range topics {
+		h.removeMapping(t, chatid, userid)
+	}
 	writeJson(h.ConfigPath, h.mapping)
 }
 
@@ -344,3 +359,4 @@ func NewSubMessage(topics []string) *core.PubRequest {
 		Topics: topics,
 	}
 }
+
