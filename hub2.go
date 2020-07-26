@@ -197,6 +197,11 @@ func (h *Hub2) handlerWSPush(push core.PushMessageResponse, message []byte) {
 			// log.Println(xxs)
 
 			for chatid, useridSet := range xxs {
+				// ignore if userid set is empty
+				if len(useridSet.Arr()) == 0 {
+					continue
+				}
+
 				chatidInt64, err := strconv.ParseInt(chatid, 10, 64)
 				fatalErr(err, "strconv")
 
@@ -359,4 +364,3 @@ func NewSubMessage(topics []string) *core.PubRequest {
 		Topics: topics,
 	}
 }
-
